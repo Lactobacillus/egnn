@@ -13,10 +13,11 @@ class E_GCL_mask(E_GCL):
     """
 
     def __init__(self, input_nf, output_nf, hidden_nf, edges_in_d=0, nodes_attr_dim=0, act_fn=nn.ReLU(), recurrent=True, coords_weight=1.0, 
-                attention=False, update_coords=False):
+                attention=False, update_coords=False, use_rinv=False):
         E_GCL.__init__(self, input_nf, output_nf, hidden_nf, edges_in_d=edges_in_d, nodes_att_dim=nodes_attr_dim, act_fn=act_fn, recurrent=recurrent, coords_weight=coords_weight, attention=attention)
         
         self.update_coords = update_coords
+        self.use_rinv = use_rinv
         if not self.update_coords:
             del self.coord_mlp
         self.act_fn = act_fn
@@ -34,6 +35,8 @@ class E_GCL_mask(E_GCL):
         row, col = edge_index
         
         if (radial is None) or (coord_diff is None):
+            if self.use_rinv:
+                radial = 1.0 / (radial + 0.3)
             radial, coord_diff = self.coord2radial(edge_index, coord)
 
         edge_feat = self.edge_model(h[row], h[col], radial, edge_attr)
@@ -50,7 +53,7 @@ class E_GCL_mask(E_GCL):
         return h, coord_new, edge_attr
 
 
-
+                equation:bool = False, update_coords=False, use_rinv=False):
 class EGNN(nn.Module):
     def __init__(self, in_node_nf, in_edge_nf, hidden_nf, device='cpu', act_fn=nn.SiLU(), n_layers=4, coords_weight=1.0, attention=False, node_attr=1,
                 equation:bool = False, update_coords=False):
@@ -59,6 +62,7 @@ class EGNN(nn.Module):
         self.device = device
         self.n_layers = n_layers
 
+        self.use_rinv = use_rinv
 
 
         self.update_coords = update_coords
@@ -69,7 +73,7 @@ class EGNN(nn.Module):
         self.embedding = nn.Linear(in_node_nf, hidden_nf)
         self.node_attr = node_attr
         if node_attr:
-            n_node_attr = in_node_nf
+            self.add_module("gcl_%d" % i, E_GCL_mask(self.hidden_nf, self.hidden_nf, self.hidden_nf, edges_in_d=in_edge_nf, nodes_attr_dim=n_node_attr, act_fn=act_fn, recurrent=True, coords_weight=coords_weight, attention=attention, update_coords=update_coords, use_rinv=use_rinv))
         else:
             n_node_attr = 0
         for i in range(0, n_layers):
@@ -84,6 +88,8 @@ class EGNN(nn.Module):
                                        nn.Linear(self.hidden_nf, 1))
         self.to(self.device)
 
+        if self.use_rinv:
+            radial = 1.0 / (radial + 0.3)
     def forward(self, h0, x, edges, edge_attr, node_mask, edge_mask, n_nodes):
         h = self.embedding(h0)
         
