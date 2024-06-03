@@ -48,6 +48,11 @@ parser.add_argument('--node_attr', type=int, default=0, metavar='N',
                     help='node_attr or not')
 parser.add_argument('--weight_decay', type=float, default=1e-16, metavar='N',
                     help='weight decay')
+parser.add_argument('--use_eq', type=bool, default=False, metavar='N',
+                    help='use equation')
+parser.add_argument('--update_coords', action = 'store_true', default=False,
+                    help='update coordinates')
+
 parser.add_argument('--use_force', action = 'store_true')
 
 args = parser.parse_args()
@@ -64,8 +69,7 @@ dataloaders, charge_scale = dataset.retrieve_dataloaders(args.batch_size, args.n
 meann, mad = qm9_utils.compute_mean_mad(dataloaders, args.property)
 
 model = EGNN(in_node_nf=15, in_edge_nf=0, hidden_nf=args.nf, device=device, n_layers=args.n_layers, coords_weight=1.0,
-             attention=args.attention, node_attr=args.node_attr)
-
+             attention=args.attention, node_attr=args.node_attr, equation=args.use_eq, update_coords=args.update_coords)
 print(model)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -100,7 +104,7 @@ def train(epoch, loader, partition='train'):
         atom_positions.requires_grad = True
         atom_positions.retain_grad()
 
-        pred_energy = model(h0=nodes, x=atom_positions, edges=edges, edge_attr=None, node_mask=atom_mask, edge_mask=edge_mask,
+        pred_energy, coord_new = model(h0=nodes, x=atom_positions, edges=edges, edge_attr=None, node_mask=atom_mask, edge_mask=edge_mask,
                      n_nodes=n_nodes)
 
         energy_per_atom = energy / n_nodes
