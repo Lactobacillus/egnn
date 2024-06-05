@@ -15,7 +15,7 @@ parser.add_argument('--exp_name', type=str, default='exp_1', metavar='N',
                     help='experiment_name')
 parser.add_argument('--batch_size', type=int, default=96, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=1000, metavar='N',
+parser.add_argument('--epochs', type=int, default=10000, metavar='N',
                     help='number of epochs to train (default: 10)')
 
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -28,7 +28,7 @@ parser.add_argument('--test_interval', type=int, default=1, metavar='N',
                     help='how many epochs to wait before logging test')
 parser.add_argument('--outf', type=str, default='qm9/logs', metavar='N',
                     help='folder to output vae')
-parser.add_argument('--lr', type=float, default=1e-3, metavar='N',
+parser.add_argument('--lr', type=float, default=1e-4, metavar='N',
                     help='learning rate')
 parser.add_argument('--nf', type=int, default=128, metavar='N',
                     help='learning rate')
@@ -48,8 +48,14 @@ parser.add_argument('--node_attr', type=int, default=0, metavar='N',
                     help='node_attr or not')
 parser.add_argument('--weight_decay', type=float, default=1e-16, metavar='N',
                     help='weight decay')
+parser.add_argument('--energy_force_ratio', type=float, default=0.3, metavar='N',
+                    help='energy_force_ratio')
+parser.add_argument('--debug', action='store_true', default=False,
+                    help='enable debuging mode (no Wandb)')
 parser.add_argument('--use_eq', type=bool, default=False, metavar='N',
                     help='use equation')
+parser.add_argument('--use_rinv', action = 'store_true', default=False,
+                    help='use rinv enconding')
 parser.add_argument('--update_coords', action = 'store_true', default=False,
                     help='update coordinates')
 
@@ -69,7 +75,7 @@ dataloaders, charge_scale = dataset.retrieve_dataloaders(args.batch_size, args.n
 meann, mad = qm9_utils.compute_mean_mad(dataloaders, args.property)
 
 model = EGNN(in_node_nf=15, in_edge_nf=0, hidden_nf=args.nf, device=device, n_layers=args.n_layers, coords_weight=1.0,
-             attention=args.attention, node_attr=args.node_attr, equation=args.use_eq, update_coords=args.update_coords)
+             attention=args.attention, node_attr=args.node_attr, equation=args.use_eq, update_coords=args.update_coords, use_rinv=args.use_rinv)
 print(model)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -129,8 +135,9 @@ def train(epoch, loader, partition='train'):
             
             energy_loss = loss_l1(pred_energy_per_atom, energy_per_atom)
             force_loss = loss_l1(pred_force_per_atom, torch.zeros_like(pred_force_per_atom))
-
-            loss = energy_loss + 0.3 * force_loss
+            
+            energy_force_ratio = args.energy_force_ratio
+            loss = energy_loss + energy_force_ratio * force_loss
 
             loss.backward()
             optimizer.step()
@@ -140,7 +147,8 @@ def train(epoch, loader, partition='train'):
             energy_loss = loss_l1(pred_energy_per_atom, energy_per_atom)
             force_loss = loss_l1(pred_force_per_atom, torch.zeros_like(pred_force_per_atom))
 
-            loss = energy_loss + 0.3 * force_loss
+            energy_force_ratio = args.energy_force_ratio
+            loss = energy_loss + energy_force_ratio * force_loss
 
         res['loss'] += loss.item() * batch_size
         res['energy'] += energy_loss.item() * batch_size
@@ -155,7 +163,8 @@ def train(epoch, loader, partition='train'):
             wandb_log_dict = {'train_iter/energy_mae_loss_meV': 1000 * energy_loss.item(),
                             'train_iter/force_mae_loss_meV_angstrom': 1000 * force_loss.item(),
                             'train_iter/total_mae_loss': 1000 * loss.item()}
-            wandb.log(wandb_log_dict)
+            if not args.debug:
+                wandb.log(wandb_log_dict)
 
         prefix = ""
         if partition != 'train':
@@ -170,11 +179,12 @@ def train(epoch, loader, partition='train'):
 if __name__ == "__main__":
     res = {'epochs': [], 'losess': [], 'energy_per_atom': [], 'force_per_atom':[], 'best_val': 1e10, 'best_test': 1e10, 'best_epoch': 0}
 
-    wandb.init(project = 'stable-material-diffusion_regression',
-        name = args.exp_name,
-        entity = 'feedstock_opt',
-        dir = os.path.join(args.outf, args.exp_name))
-    wandb.config.update(args)
+    if not args.debug:
+        wandb.init(project = 'stable-material-diffusion_regression',
+            name = args.exp_name,
+            entity = 'feedstock_opt',
+            dir = os.path.join(args.outf, args.exp_name))
+        wandb.config.update(args)
 
     for epoch in range(0, args.epochs):
         train(epoch, dataloaders['train'], partition='train')
@@ -196,5 +206,5 @@ if __name__ == "__main__":
         json_object = json.dumps(res, indent=4)
         with open(args.outf + "/" + args.exp_name + "/losess.json", "w") as outfile:
             outfile.write(json_object)
-
-    wandb.finish(0)
+    if not args.debug:
+        wandb.finish(0)
