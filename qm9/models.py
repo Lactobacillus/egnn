@@ -53,8 +53,6 @@ class E_GCL_mask(E_GCL):
 
         return h, coord_new, edge_attr
 
-
-                equation:bool = False, update_coords=False, use_rinv=False):
 class EGNN(nn.Module):
     def __init__(self, in_node_nf, in_edge_nf, hidden_nf, device='cpu', act_fn=nn.SiLU(), n_layers=4, coords_weight=1.0, attention=False, node_attr=1,
                 equation:bool = False, update_coords=False, use_rinv=False):
@@ -89,8 +87,6 @@ class EGNN(nn.Module):
                                        nn.Linear(self.hidden_nf, 1))
         self.to(self.device)
 
-        if self.use_rinv:
-            radial = 1.0 / (radial + 0.3)
     def forward(self, h0, x, edges, edge_attr, node_mask, edge_mask, n_nodes):
         h = self.embedding(h0)
         
